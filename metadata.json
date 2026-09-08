@@ -1,0 +1,10 @@
+{
+  "name": "Remix GeoSafeAI",
+  "description": "Adaptive Geofencing and AI-Powered Risk-Aware Navigation for Intelligent Tourism Safety",
+  "requestFramePermissions": [
+    "geolocation"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
