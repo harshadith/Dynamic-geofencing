@@ -8,6 +8,10 @@ export interface User {
   role: Role;
   photoUrl?: string;
   emergencyContact?: EmergencyContact;
+  lastLoginAt?: string;
+  lastLogoutAt?: string;
+  createdAt?: string;
+  isOnline?: boolean;
 }
 
 export interface EmergencyContact {

@@ -13,7 +13,7 @@ service cloud.firestore {
     // User profile documents
     match /users/{userId} {
       allow read: if isAuthenticated();
-      allow create, update: if isAuthenticated() && (request.auth.uid == userId || request.resource.data.id == request.auth.uid);
+      allow create, update: if isAuthenticated();
       allow delete: if isOwner(userId);
     }
 

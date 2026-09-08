@@ -49,15 +49,69 @@ export async function syncUserProfile(firebaseUser: FirebaseUser, customName?: s
     phone: firebaseUser.phoneNumber || existingData.phone || '+1 555-0199',
     role: userRole,
     photoUrl: firebaseUser.photoURL || existingData.photoUrl || undefined,
+    lastLoginAt: new Date().toISOString(),
+    createdAt: existingData.createdAt || new Date().toISOString(),
+    isOnline: true,
   };
 
   await setDoc(userDocRef, {
     ...appUser,
-    lastLoginAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   }, { merge: true });
 
   return appUser;
+}
+
+/**
+ * Subscribe to all users registered or logged into the application.
+ */
+export function subscribeToAllUsers(callback: (users: User[]) => void) {
+  const usersRef = collection(db, 'users');
+  return onSnapshot(
+    usersRef,
+    (snapshot) => {
+      const userList: User[] = [];
+      snapshot.forEach((docSnap) => {
+        const d = docSnap.data();
+        userList.push({
+          id: docSnap.id,
+          name: d.name || 'User',
+          email: d.email || '',
+          phone: d.phone || '',
+          role: d.role === 'admin' ? 'admin' : 'tourist',
+          photoUrl: d.photoUrl || undefined,
+          lastLoginAt: d.lastLoginAt || d.updatedAt || undefined,
+          lastLogoutAt: d.lastLogoutAt || undefined,
+          createdAt: d.createdAt || undefined,
+          isOnline: d.isOnline ?? false,
+          emergencyContact: d.emergencyContact || undefined,
+        });
+      });
+
+      // Sort by most recently active / logged in first
+      userList.sort((a, b) => {
+        const timeA = a.lastLoginAt ? new Date(a.lastLoginAt).getTime() : 0;
+        const timeB = b.lastLoginAt ? new Date(b.lastLoginAt).getTime() : 0;
+        return timeB - timeA;
+      });
+
+      callback(userList);
+    },
+    (error) => {
+      console.warn('Firestore users subscription notice:', error.message);
+    }
+  );
+}
+
+/**
+ * Update user role (e.g. promote to admin or set to tourist) in Firestore.
+ */
+export async function updateUserRoleInFirestore(userId: string, newRole: 'tourist' | 'admin'): Promise<void> {
+  const userDocRef = doc(db, 'users', userId);
+  await setDoc(userDocRef, {
+    role: newRole,
+    updatedAt: new Date().toISOString(),
+  }, { merge: true });
 }
 
 /**
@@ -216,6 +270,11 @@ export async function loginAsGuest(name: string = 'Verified Traveler'): Promise<
 export async function logoutUser(): Promise<void> {
   if (auth.currentUser) {
     try {
+      // Mark as offline in user profile
+      await setDoc(doc(db, 'users', auth.currentUser.uid), {
+        isOnline: false,
+        lastLogoutAt: new Date().toISOString(),
+      }, { merge: true });
       // Remove traveller presence on logout
       await deleteDoc(doc(db, 'travellers', auth.currentUser.uid));
     } catch {}

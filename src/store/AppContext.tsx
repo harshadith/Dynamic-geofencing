@@ -11,12 +11,16 @@ import {
   subscribeToFirestoreGeofences,
   syncGeofenceToFirestore,
   removeGeofenceFromFirestore,
+  subscribeToAllUsers,
+  updateUserRoleInFirestore,
 } from '../services/authService';
 
 interface AppContextType {
   user: User | null;
   setUser: (user: User | null) => void;
   toggleUserRole: () => void;
+  allUsers: User[];
+  updateUserRole: (userId: string, newRole: 'tourist' | 'admin') => Promise<void>;
   currentLocation: GeoLocation;
   setCurrentLocation: (loc: GeoLocation) => void;
   isDemoLocation: boolean;
@@ -81,6 +85,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
   // Real logged-in travellers (starts empty or with current logged-in user - NO FAKE USERS)
   const [travellers, setTravellers] = useState<Traveller[]>([]);
   const [selectedTravellerId, setSelectedTravellerId] = useState<string | null>(null);
+  const [allUsers, setAllUsers] = useState<User[]>([]);
 
   // 1. Listen to Firebase Auth state changes
   useEffect(() => {
@@ -97,6 +102,18 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
 
     return () => unsubscribeAuth();
   }, []);
+
+  // 1b. Real-time Firestore sync for all logged-in and registered users
+  useEffect(() => {
+    const unsubscribeUsers = subscribeToAllUsers((usersList) => {
+      if (usersList.length > 0) {
+        setAllUsers(usersList);
+      } else if (user) {
+        setAllUsers([user]);
+      }
+    });
+    return () => unsubscribeUsers();
+  }, [user]);
 
   // 2. Real-time Firestore sync for logged-in travellers
   useEffect(() => {
@@ -292,12 +309,21 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     });
   };
 
+  const updateUserRole = async (userId: string, newRole: 'tourist' | 'admin') => {
+    await updateUserRoleInFirestore(userId, newRole);
+    if (user && user.id === userId) {
+      setUser((prev) => (prev ? { ...prev, role: newRole } : null));
+    }
+  };
+
   return (
     <AppContext.Provider
       value={{
         user,
         setUser,
         toggleUserRole,
+        allUsers,
+        updateUserRole,
         currentLocation,
         setCurrentLocation,
         isDemoLocation,

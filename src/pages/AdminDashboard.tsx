@@ -6,6 +6,9 @@ import { GeofenceManagerModal } from '../components/admin/GeofenceManagerModal';
 import { OpenFreeMapStyleId } from '../utils/mapUtils';
 import { calculateDistance } from '../services/SafetyEngine';
 import { updateLiveTravellerPresence } from '../services/authService';
+import { doc, setDoc } from 'firebase/firestore';
+import { db } from '../services/firebase';
+import { UserManagementPanel } from '../components/admin/UserManagementPanel';
 import { 
   Shield, 
   Users, 
@@ -45,10 +48,12 @@ export const AdminDashboard = () => {
     setSelectedTravellerId,
     toggleUserRole,
     currentLocation,
+    allUsers,
+    updateUserRole,
   } = useAppContext();
 
-  // Tab selection: 'ai_assistant' | 'geofences' | 'travellers'
-  const [activeTab, setActiveTab] = useState<'ai_assistant' | 'geofences' | 'travellers'>('ai_assistant');
+  // Tab selection: 'users' | 'travellers' | 'geofences' | 'ai_assistant'
+  const [activeTab, setActiveTab] = useState<'users' | 'travellers' | 'geofences' | 'ai_assistant'>('users');
   const [mapStyle, setMapStyle] = useState<OpenFreeMapStyleId>('liberty');
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isPlacingOnMap, setIsPlacingOnMap] = useState(false);
@@ -65,15 +70,23 @@ export const AdminDashboard = () => {
   };
 
   const handleAddLiveDevice = async () => {
-    const deviceNum = travellers.length + 1;
-    const testTravellerId = `dev_${Date.now().toString(36)}`;
+    const deviceNum = Math.max(travellers.length, allUsers.length) + 1;
+    const testTravellerId = `usr_${Date.now().toString(36)}`;
     const dummyUser = {
       id: testTravellerId,
-      name: `Real Traveler #${deviceNum}`,
-      email: `traveler${deviceNum}@geosafe.net`,
-      phone: '+1 555-0199',
+      name: `Active Traveler #${deviceNum}`,
+      email: `traveler${deviceNum}@geosafe.app`,
+      phone: `+1 555-${String(Math.floor(1000 + Math.random() * 9000))}`,
       role: 'tourist' as const,
+      createdAt: new Date().toISOString(),
+      lastLoginAt: new Date().toISOString(),
+      isOnline: true,
     };
+    try {
+      await setDoc(doc(db, 'users', dummyUser.id), dummyUser);
+    } catch (err) {
+      console.warn('Could not save user profile:', err);
+    }
     // Position around current location
     const offsetLat = (Math.random() - 0.5) * 0.012;
     const offsetLng = (Math.random() - 0.5) * 0.012;
@@ -90,8 +103,12 @@ export const AdminDashboard = () => {
     [travellers, selectedTravellerId]
   );
 
-  // Geofence statistics
+  // Aggregated system statistics
   const stats = useMemo(() => {
+    const totalUsers = allUsers.length;
+    const onlineUsers = allUsers.filter(u => u.isOnline || travellers.some(t => t.id === u.id)).length;
+    const adminUsers = allUsers.filter(u => u.role === 'admin').length;
+
     const totalTravellers = travellers.length;
     const criticalTravellers = travellers.filter(t => t.status === 'critical' || t.status === 'sos').length;
     const warningTravellers = travellers.filter(t => t.status === 'warning').length;
@@ -102,6 +119,9 @@ export const AdminDashboard = () => {
     const hazardGeofences = geofences.filter(g => g.riskLevel !== 'safe').length;
 
     return {
+      totalUsers,
+      onlineUsers,
+      adminUsers,
       totalTravellers,
       criticalTravellers,
       warningTravellers,
@@ -110,7 +130,7 @@ export const AdminDashboard = () => {
       safeGeofences,
       hazardGeofences,
     };
-  }, [travellers, geofences]);
+  }, [allUsers, travellers, geofences]);
 
   // Map click handler for placing geofences
   const handleMapClickCoordinates = (coords: { lat: number; lng: number }) => {
@@ -244,7 +264,15 @@ export const AdminDashboard = () => {
           {/* Quick Metrics Strip */}
           <div className="grid grid-cols-2 sm:grid-cols-4 border-b border-slate-200 bg-slate-50/70 shrink-0 text-xs">
             <div className="p-2.5 px-3.5 border-r border-slate-200">
-              <span className="text-[10px] font-semibold text-slate-500 block uppercase">Travellers Monitored</span>
+              <span className="text-[10px] font-semibold text-slate-500 block uppercase">Logged-In Users</span>
+              <div className="flex items-baseline gap-1.5 mt-0.5">
+                <span className="text-lg font-extrabold text-slate-900">{stats.totalUsers}</span>
+                <span className="text-[11px] text-blue-600 font-medium">({stats.onlineUsers} Online • {stats.adminUsers} Admins)</span>
+              </div>
+            </div>
+
+            <div className="p-2.5 px-3.5 border-r border-slate-200">
+              <span className="text-[10px] font-semibold text-slate-500 block uppercase">Live GPS Radar</span>
               <div className="flex items-baseline gap-1.5 mt-0.5">
                 <span className="text-lg font-extrabold text-slate-900">{stats.totalTravellers}</span>
                 <span className="text-[11px] text-emerald-600 font-medium">({stats.safeTravellers} Safe)</span>
@@ -261,19 +289,11 @@ export const AdminDashboard = () => {
               </div>
             </div>
 
-            <div className="p-2.5 px-3.5 border-r border-slate-200">
+            <div className="p-2.5 px-3.5">
               <span className="text-[10px] font-semibold text-slate-500 block uppercase">Active Geofences</span>
               <div className="flex items-baseline gap-1.5 mt-0.5">
                 <span className="text-lg font-extrabold text-blue-700">{stats.totalGeofences}</span>
                 <span className="text-[11px] text-slate-500">({stats.safeGeofences} Safe / {stats.hazardGeofences} Hazard)</span>
-              </div>
-            </div>
-
-            <div className="p-2.5 px-3.5">
-              <span className="text-[10px] font-semibold text-slate-500 block uppercase">AI Controller Engine</span>
-              <div className="flex items-center gap-1.5 mt-1">
-                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping"></span>
-                <span className="font-bold text-slate-800 text-xs">Groq LPU / Dynamic</span>
               </div>
             </div>
           </div>
@@ -348,46 +368,82 @@ export const AdminDashboard = () => {
           )}
         </div>
 
-        {/* Right Section: Multi-Tab Console (AI Chatbot / Geofence Management / Travellers Directory) (35% width) */}
-        <div className="w-full lg:w-[420px] flex flex-col min-h-0 bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden shrink-0">
+        {/* Right Section: Multi-Tab Console (Users / Radar / Geofences / AI Controller) (35% width) */}
+        <div className="w-full lg:w-[460px] xl:w-[490px] flex flex-col min-h-0 bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden shrink-0">
           {/* Navigation Tabs */}
-          <div className="flex border-b border-slate-200 p-1 bg-slate-50 text-xs shrink-0">
+          <div className="flex border-b border-slate-200 p-1 bg-slate-50 text-xs shrink-0 gap-0.5">
             <button
-              onClick={() => setActiveTab('ai_assistant')}
-              className={`flex-1 py-2 rounded-xl font-bold flex items-center justify-center gap-1.5 transition-all ${
-                activeTab === 'ai_assistant'
+              onClick={() => setActiveTab('users')}
+              className={`flex-1 py-2 px-1 rounded-xl font-bold flex items-center justify-center gap-1 transition-all ${
+                activeTab === 'users'
                   ? 'bg-white text-blue-700 shadow-xs'
                   : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              <Bot className="w-4 h-4 text-blue-600" />
-              AI Controller
-            </button>
-
-            <button
-              onClick={() => setActiveTab('geofences')}
-              className={`flex-1 py-2 rounded-xl font-bold flex items-center justify-center gap-1.5 transition-all ${
-                activeTab === 'geofences'
-                  ? 'bg-white text-blue-700 shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              <Shield className="w-4 h-4 text-emerald-600" />
-              Geofences ({geofences.length})
+              <UserCheck className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+              <span className="truncate">Users</span>
+              <span className="text-[10px] font-extrabold px-1.5 py-0.2 rounded-full bg-blue-100 text-blue-800">
+                {allUsers.length}
+              </span>
             </button>
 
             <button
               onClick={() => setActiveTab('travellers')}
-              className={`flex-1 py-2 rounded-xl font-bold flex items-center justify-center gap-1.5 transition-all ${
+              className={`flex-1 py-2 px-1 rounded-xl font-bold flex items-center justify-center gap-1 transition-all ${
                 activeTab === 'travellers'
                   ? 'bg-white text-blue-700 shadow-xs'
                   : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              <Users className="w-4 h-4 text-slate-600" />
-              Travellers ({travellers.length})
+              <Radio className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+              <span className="truncate">Radar</span>
+              <span className="text-[10px] font-extrabold px-1.5 py-0.2 rounded-full bg-emerald-100 text-emerald-800">
+                {travellers.length}
+              </span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('geofences')}
+              className={`flex-1 py-2 px-1 rounded-xl font-bold flex items-center justify-center gap-1 transition-all ${
+                activeTab === 'geofences'
+                  ? 'bg-white text-blue-700 shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <Shield className="w-3.5 h-3.5 text-slate-600 shrink-0" />
+              <span className="truncate">Zones</span>
+              <span className="text-[10px] font-extrabold px-1.5 py-0.2 rounded-full bg-slate-200 text-slate-700">
+                {geofences.length}
+              </span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('ai_assistant')}
+              className={`flex-1 py-2 px-1 rounded-xl font-bold flex items-center justify-center gap-1 transition-all ${
+                activeTab === 'ai_assistant'
+                  ? 'bg-white text-blue-700 shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <Bot className="w-3.5 h-3.5 text-purple-600 shrink-0" />
+              <span className="truncate">AI Bot</span>
             </button>
           </div>
+
+          {/* Tab 0: Registered & Logged-In Users Directory */}
+          {activeTab === 'users' && (
+            <UserManagementPanel
+              users={allUsers}
+              travellers={travellers}
+              currentUserId={user?.id}
+              onSelectTraveller={(id) => {
+                setSelectedTravellerId(id);
+                setActiveTab('travellers');
+              }}
+              onUpdateRole={updateUserRole}
+              onSendAlert={handleBroadcastAlert}
+            />
+          )}
 
           {/* Tab 1: AI Chatbot for Dynamic Geofencing & Tasks */}
           {activeTab === 'ai_assistant' && (
