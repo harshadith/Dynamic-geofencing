@@ -1,8 +1,47 @@
 'use client';
 
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { GeoPoint, DynamicGeofence, TouristTelemetry, ThreatLevel } from '@/types';
 import { PREDEFINED_EMERGENCY_SERVICES } from '@/lib/safety/geofence-engine';
+import { Layers, Shield, Check } from 'lucide-react';
+
+// 100% Free Open-Source Map Tile Providers (Zero API keys required)
+export const FREE_MAP_TILES = {
+  osm_standard: {
+    id: 'osm_standard',
+    name: 'OpenStreetMap (Standard Free)',
+    url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors',
+    maxZoom: 19,
+    subdomains: ['a', 'b', 'c'],
+  },
+  osm_humanitarian: {
+    id: 'osm_humanitarian',
+    name: 'OpenStreetMap (Humanitarian HOT)',
+    url: 'https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png',
+    attribution: '&copy; OpenStreetMap contributors, Humanitarian OpenStreetMap Team',
+    maxZoom: 19,
+    subdomains: ['a', 'b', 'c'],
+  },
+  osm_dark: {
+    id: 'osm_dark',
+    name: 'OpenStreetMap (Dark Free)',
+    url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+    attribution: '&copy; OpenStreetMap contributors &copy; CARTO',
+    maxZoom: 19,
+    subdomains: 'abcd',
+  },
+  osm_topo: {
+    id: 'osm_topo',
+    name: 'OpenTopoMap (Topographic Free)',
+    url: 'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',
+    attribution: '&copy; OpenStreetMap & OpenTopoMap',
+    maxZoom: 17,
+    subdomains: ['a', 'b', 'c'],
+  },
+} as const;
+
+export type FreeMapTileId = keyof typeof FREE_MAP_TILES;
 
 interface SafeMapProps {
   center: GeoPoint;
@@ -19,6 +58,7 @@ interface SafeMapProps {
   selectedGeofenceId?: string | null;
   onSelectGeofence?: (gf: DynamicGeofence) => void;
   className?: string;
+  defaultTileStyle?: FreeMapTileId;
 }
 
 export default function SafeMap({
@@ -36,9 +76,14 @@ export default function SafeMap({
   selectedGeofenceId,
   onSelectGeofence,
   className = 'h-full w-full',
+  defaultTileStyle = 'osm_standard',
 }: SafeMapProps) {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<any>(null);
+  const currentTileLayerRef = useRef<any>(null);
+  const [activeTileStyle, setActiveTileStyle] = useState<FreeMapTileId>(defaultTileStyle);
+  const [isStyleMenuOpen, setIsStyleMenuOpen] = useState(false);
+
   const layersRef = useRef<{
     geofences: any[];
     tourists: any[];
@@ -80,12 +125,15 @@ export default function SafeMap({
         zoomControl: false,
       });
 
-      // CartoDB Dark Matter tiles for sleek modern aesthetics
-      L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-        attribution: '&copy; OpenStreetMap contributors &copy; CARTO',
-        maxZoom: 19,
-        subdomains: 'abcd',
+      // Mount 100% Free OpenStreetMap tile layer (No API key needed)
+      const tileConfig = FREE_MAP_TILES[activeTileStyle];
+      const tileLayer = L.tileLayer(tileConfig.url, {
+        attribution: tileConfig.attribution,
+        maxZoom: tileConfig.maxZoom,
+        subdomains: tileConfig.subdomains as any,
       }).addTo(map);
+
+      currentTileLayerRef.current = tileLayer;
 
       L.control.zoom({ position: 'bottomright' }).addTo(map);
 
@@ -109,6 +157,30 @@ export default function SafeMap({
       }
     };
   }, []);
+
+  // Update Tile Layer when user switches Free Map style
+  useEffect(() => {
+    async function switchTileLayer() {
+      if (!mapInstanceRef.current) return;
+      const L = (await import('leaflet')).default;
+      const map = mapInstanceRef.current;
+
+      if (currentTileLayerRef.current) {
+        currentTileLayerRef.current.remove();
+      }
+
+      const tileConfig = FREE_MAP_TILES[activeTileStyle];
+      const newLayer = L.tileLayer(tileConfig.url, {
+        attribution: tileConfig.attribution,
+        maxZoom: tileConfig.maxZoom,
+        subdomains: tileConfig.subdomains as any,
+      }).addTo(map);
+
+      currentTileLayerRef.current = newLayer;
+    }
+
+    switchTileLayer();
+  }, [activeTileStyle]);
 
   // 2. Render Dynamic Geofences
   useEffect(() => {
@@ -415,6 +487,54 @@ export default function SafeMap({
   return (
     <div className={`relative ${className}`}>
       <div ref={mapContainerRef} className="h-full w-full" />
+
+      {/* Free Map Tile Selector Control (Top Right) */}
+      <div className="absolute top-4 right-4 z-[1000] flex flex-col items-end">
+        <button
+          onClick={() => setIsStyleMenuOpen(!isStyleMenuOpen)}
+          className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-900/90 hover:bg-slate-800/90 backdrop-blur-md border border-slate-700/80 text-xs font-semibold text-slate-200 shadow-xl transition-all"
+        >
+          <Layers className="w-3.5 h-3.5 text-cyan-400" />
+          <span>{FREE_MAP_TILES[activeTileStyle].name}</span>
+          <span className="text-[10px] text-emerald-400 uppercase font-bold tracking-wider px-1.5 py-0.2 rounded bg-emerald-950/60 border border-emerald-700/40">
+            Free
+          </span>
+        </button>
+
+        {isStyleMenuOpen && (
+          <div className="mt-2 w-64 rounded-2xl bg-slate-900/95 backdrop-blur-xl border border-slate-700 p-2 shadow-2xl space-y-1">
+            <div className="px-2 py-1 border-b border-slate-800 text-[10px] uppercase font-bold text-slate-400 tracking-wider">
+              Free Map Tile Providers (No API Keys)
+            </div>
+
+            {Object.entries(FREE_MAP_TILES).map(([key, tile]) => {
+              const isSelected = activeTileStyle === key;
+              return (
+                <button
+                  key={key}
+                  onClick={() => {
+                    setActiveTileStyle(key as FreeMapTileId);
+                    setIsStyleMenuOpen(false);
+                  }}
+                  className={`w-full flex items-center justify-between px-2.5 py-2 rounded-xl text-xs text-left transition-all ${
+                    isSelected
+                      ? 'bg-blue-600 text-white font-bold shadow'
+                      : 'text-slate-300 hover:bg-slate-800/80'
+                  }`}
+                >
+                  <span className="truncate">{tile.name}</span>
+                  {isSelected && <Check className="w-3.5 h-3.5 shrink-0 ml-1" />}
+                </button>
+              );
+            })}
+
+            <div className="px-2 pt-1.5 border-t border-slate-800 text-[10px] text-slate-500">
+              Powered by OpenStreetMap community data. 100% free forever.
+            </div>
+          </div>
+        )}
+      </div>
+
       {isPlacingGeofence && (
         <div className="absolute top-4 left-1/2 -translate-x-1/2 z-[1000] bg-slate-900/90 backdrop-blur-md border border-cyan-500/50 text-cyan-200 px-4 py-2 rounded-full text-xs font-semibold shadow-2xl flex items-center gap-2 animate-bounce">
           <span>🎯</span> Click on the map to set geofence center point
