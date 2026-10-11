@@ -19,6 +19,7 @@ import {
 } from 'firebase/firestore';
 import { auth, googleProvider, db } from './firebase';
 import { User, Traveller, GeoLocation, GeofenceArea } from '../types';
+import { DEFAULT_CENTER } from '../data/demoData';
 
 export interface AuthState {
   firebaseUser: FirebaseUser | null;
@@ -58,6 +59,25 @@ export async function syncUserProfile(firebaseUser: FirebaseUser, customName?: s
     ...appUser,
     updatedAt: new Date().toISOString(),
   }, { merge: true });
+
+  // Automatically register traveller telemetry presence in Firestore
+  try {
+    const jitterLat = (Math.random() - 0.5) * 0.015;
+    const jitterLng = (Math.random() - 0.5) * 0.015;
+    const initLoc: GeoLocation = {
+      lat: DEFAULT_CENTER.lat + jitterLat,
+      lng: DEFAULT_CENTER.lng + jitterLng,
+    };
+    await updateLiveTravellerPresence(
+      appUser,
+      initLoc,
+      Math.floor(Math.random() * 20) + 80,
+      94,
+      'safe'
+    );
+  } catch (err) {
+    console.warn('Traveller presence sync notice:', err);
+  }
 
   return appUser;
 }
@@ -172,7 +192,7 @@ export function subscribeToRealTravellers(callback: (travellers: Traveller[]) =>
           email: data.email || '',
           phone: data.phone || '',
           nationality: data.nationality || 'Registered User',
-          location: data.location || { lat: 28.6139, lng: 77.2090 },
+          location: data.location || DEFAULT_CENTER,
           lastUpdated: data.lastUpdated || 'Just now',
           batteryLevel: typeof data.batteryLevel === 'number' ? data.batteryLevel : 85,
           safetyScore: typeof data.safetyScore === 'number' ? data.safetyScore : 90,

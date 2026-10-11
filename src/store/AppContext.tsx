@@ -4,6 +4,7 @@ import { DEFAULT_CENTER, DEMO_GEOFENCE_AREAS } from '../data/demoData';
 import { calculateDistance, calculateSafetyStatus } from '../services/SafetyEngine';
 import { auth, db } from '../services/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
+import { doc, setDoc } from 'firebase/firestore';
 import {
   syncUserProfile,
   updateLiveTravellerPresence,
@@ -94,6 +95,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
         try {
           const appUser = await syncUserProfile(fbUser);
           setUser(appUser);
+          await updateLiveTravellerPresence(appUser, currentLocation, batteryLevel, 94, 'safe');
         } catch (err) {
           console.warn('Error syncing user profile on auth change:', err);
         }
@@ -103,7 +105,42 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     return () => unsubscribeAuth();
   }, []);
 
-  // 1b. Real-time Firestore sync for all logged-in and registered users
+  // 1b. Automatically register and heartbeat the active user profile & live telemetry in Firestore
+  useEffect(() => {
+    if (!user) return;
+
+    const syncCurrentPresence = async () => {
+      try {
+        await setDoc(doc(db, 'users', user.id), {
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          phone: user.phone || '+91 98450 12345',
+          role: user.role,
+          photoUrl: user.photoUrl || '',
+          lastLoginAt: new Date().toISOString(),
+          isOnline: true,
+          updatedAt: new Date().toISOString(),
+        }, { merge: true });
+
+        await updateLiveTravellerPresence(
+          user,
+          currentLocation,
+          batteryLevel,
+          safetyStatus?.score || 94,
+          'safe'
+        );
+      } catch (err) {
+        console.warn('Sync presence error:', err);
+      }
+    };
+
+    syncCurrentPresence();
+    const interval = setInterval(syncCurrentPresence, 20000);
+    return () => clearInterval(interval);
+  }, [user, currentLocation, batteryLevel, safetyStatus]);
+
+  // 1c. Real-time Firestore sync for all logged-in and registered users
   useEffect(() => {
     const unsubscribeUsers = subscribeToAllUsers((usersList) => {
       if (usersList.length > 0) {

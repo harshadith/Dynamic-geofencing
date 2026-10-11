@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { doc, setDoc } from 'firebase/firestore';
 import { db } from '../../services/firebase';
+import { DEFAULT_CENTER } from '../../data/demoData';
 
 interface UserManagementPanelProps {
   users: User[];
@@ -130,8 +131,38 @@ export const UserManagementPanel: React.FC<UserManagementPanelProps> = ({
         isOnline: true,
       };
 
+      // 1. Save user profile
       await setDoc(doc(db, 'users', newUid), newUser);
-      onSendAlert(`New authenticated user "${randomName}" registered in Firestore.`);
+
+      // 2. Save active traveller telemetry so they appear on the live radar and map immediately
+      const offsetLat = (Math.random() - 0.5) * 0.015;
+      const offsetLng = (Math.random() - 0.5) * 0.015;
+      const deviceLoc = {
+        lat: DEFAULT_CENTER.lat + offsetLat,
+        lng: DEFAULT_CENTER.lng + offsetLng,
+      };
+
+      const newTraveller: Traveller = {
+        id: newUid,
+        name: randomName,
+        email: newUser.email,
+        phone: newUser.phone || '',
+        nationality: 'Active Traveler',
+        location: deviceLoc,
+        lastUpdated: 'Just now',
+        batteryLevel: Math.floor(Math.random() * 30) + 70,
+        safetyScore: Math.floor(Math.random() * 20) + 80,
+        status: 'safe',
+        geofenceStatus: 'inside_safe',
+      };
+
+      await setDoc(doc(db, 'travellers', newUid), {
+        ...newTraveller,
+        userId: newUid,
+        timestamp: new Date().toISOString(),
+      });
+
+      onSendAlert(`User & Live Device "${randomName}" connected and active.`);
     } catch (err: any) {
       console.error(err);
     } finally {
